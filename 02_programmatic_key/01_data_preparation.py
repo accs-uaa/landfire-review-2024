@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Prepare data for processing
 # Author: Timm Nawrocki
-# Last Updated: 2024-01-13
+# Last Updated: 2024-01-17
 # Usage: Execute in Python 3.9+.
 # Description: "Prepare data for processing" enforces a common grid, cell size, and extent on all raster input data.
 # ---------------------------------------------------------------------------
@@ -26,13 +26,17 @@ output_folder = os.path.join(project_folder, 'Data_Input/akveg_foliar_30m')
 intermediate_folder = os.path.join(project_folder, 'Data_Input/intermediate')
 
 # Define input files
-area_input = os.path.join(project_folder, 'Data_Input/NorthAmericanBeringia_v1_30m.tif')
+area_input = os.path.join(project_folder, 'Data_Input/Landfire_AKVEG_Automated_Domain_30m_3338.tif')
 landfire_input = os.path.join(project_folder, 'Data_Input/landfire_evt/LA16_EVT_200.tif')
 zones_input = os.path.join(project_folder, 'Data_Output/zones/AlaskaYukon_VegetationZones_30m_3338.tif')
+biomes_input = os.path.join(project_folder, 'Data_Output/zones/AlaskaYukon_Biomes_30m_3338.tif')
+subboreal_input = os.path.join(project_folder, 'Data_Output/zones/Alaska_EcologicalSystems_Subboreal_30m_3338.tif')
 
 # Define output files
 landfire_output = os.path.join(intermediate_folder, 'LA16_EVT_200.tif')
 zones_output = os.path.join(intermediate_folder, 'AlaskaYukon_VegetationZones_30m_3338.tif')
+biomes_output = os.path.join(intermediate_folder, 'AlaskaYukon_Biomes_30m_3338.tif')
+subboreal_output = os.path.join(intermediate_folder, 'Alaska_EcologicalSystems_Subboreal_30m_3338.tif')
 
 # Define foliar cover input lists
 species_list = ['alnus', 'betshr', 'bettre', 'dectre', 'dryas', 'empnig', 'erivag',
@@ -75,12 +79,12 @@ for input_name in species_list:
                   srcNodata=255,
                   dstNodata=255,
                   outputBounds=area_bounds,
-                  resampleAlg='bilinear',
+                  resampleAlg='average',
                   targetAlignedPixels=False,
                   creationOptions=['COMPRESS=LZW', 'BIGTIFF=YES'])
         end_timing(iteration_start)
 
-# Process foliar cover species/aggregate input data in loop
+# Process foliar cover plant functional type input data in loop
 count = 0
 for input_name in pft_list:
     # Define input folder
@@ -107,7 +111,7 @@ for input_name in pft_list:
                   srcNodata=255,
                   dstNodata=255,
                   outputBounds=area_bounds,
-                  resampleAlg='bilinear',
+                  resampleAlg='near',
                   targetAlignedPixels=False,
                   creationOptions=['COMPRESS=LZW', 'BIGTIFF=YES'])
         end_timing(iteration_start)
@@ -137,11 +141,53 @@ if os.path.exists(landfire_output) == 0:
 
 # Process zones input data
 if os.path.exists(zones_output) == 0:
-    print(f'Standardizing Zones...')
+    print(f'Standardizing zones...')
     iteration_start = time.time()
     # Merge tiles
     gdal.Warp(zones_output,
               zones_input,
+              srcSRS='EPSG:3338',
+              dstSRS='EPSG:3338',
+              outputType=gdal.GDT_Byte,
+              workingType=gdal.GDT_Byte,
+              xRes=30,
+              yRes=-30,
+              srcNodata=255,
+              dstNodata=255,
+              outputBounds=area_bounds,
+              resampleAlg='near',
+              targetAlignedPixels=False,
+              creationOptions=['COMPRESS=LZW', 'BIGTIFF=YES'])
+    end_timing(iteration_start)
+
+# Process biomes input data
+if os.path.exists(biomes_output) == 0:
+    print(f'Standardizing biomes...')
+    iteration_start = time.time()
+    # Merge tiles
+    gdal.Warp(biomes_output,
+              biomes_input,
+              srcSRS='EPSG:3338',
+              dstSRS='EPSG:3338',
+              outputType=gdal.GDT_Byte,
+              workingType=gdal.GDT_Byte,
+              xRes=30,
+              yRes=-30,
+              srcNodata=255,
+              dstNodata=255,
+              outputBounds=area_bounds,
+              resampleAlg='near',
+              targetAlignedPixels=False,
+              creationOptions=['COMPRESS=LZW', 'BIGTIFF=YES'])
+    end_timing(iteration_start)
+
+# Process sub-boreal input data
+if os.path.exists(subboreal_output) == 0:
+    print(f'Standardizing sub-boreal zone...')
+    iteration_start = time.time()
+    # Merge tiles
+    gdal.Warp(subboreal_output,
+              subboreal_input,
               srcSRS='EPSG:3338',
               dstSRS='EPSG:3338',
               outputType=gdal.GDT_Byte,

@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Calculate derived data
 # Author: Timm Nawrocki
-# Last Updated: 2024-01-13
+# Last Updated: 2024-01-17
 # Usage: Execute in Python 3.9+.
 # Description: "Calculate derived data" calculates new metrics from the foliar cover maps.
 # ---------------------------------------------------------------------------
@@ -27,7 +27,7 @@ foliar_folder = os.path.join(project_folder, 'Data_Input/akveg_foliar_30m')
 derived_folder = os.path.join(project_folder, 'Data_Input/akveg_derived_30m')
 
 # Define input files
-area_input = os.path.join(project_folder, 'Data_Input/NorthAmericanBeringia_v1_30m.tif')
+area_input = os.path.join(project_folder, 'Data_Input/Landfire_AKVEG_Automated_Domain_30m_3338.tif')
 alnus_input = os.path.join(foliar_folder, 'alnus_30m_3338.tif')
 betshr_input = os.path.join(foliar_folder, 'betshr_30m_3338.tif')
 dectre_input = os.path.join(foliar_folder, 'dectre_30m_3338.tif')
@@ -50,7 +50,7 @@ forb_input = os.path.join(foliar_folder, 'forb_30m_3338.tif')
 picratio_output = os.path.join(derived_folder, 'picea_ratio_30m_3338.tif')
 picsum_output = os.path.join(derived_folder, 'picea_sum_30m_3338.tif')
 decratio_output = os.path.join(derived_folder, 'deciduous_ratio_30m_3338.tif')
-ndshrub_output = os.path.join(derived_folder, 'ndshrub_30m_3338.tif')
+ndshrub_output = os.path.join(derived_folder, 'alder_birch_willow_30m_3338.tif')
 eridwarf_output = os.path.join(derived_folder, 'ericaceous_dwarf_30m_3338.tif')
 wetland_output = os.path.join(derived_folder, 'wetland_indicator_30m_3338.tif')
 picwet_output = os.path.join(derived_folder, 'picmar_wet_indicator_30m_3338.tif')

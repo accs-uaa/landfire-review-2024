@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Parse foliar cover to types
 # Author: Timm Nawrocki
-# Last Updated: 2024-01-14
+# Last Updated: 2024-01-17
 # Usage: Execute in Python 3.9+.
 # Description: "Parse foliar cover to types" implements a programmatic key to create discrete types.
 # ---------------------------------------------------------------------------
@@ -32,9 +32,9 @@ intermediate_folder = os.path.join(project_folder, 'Data_Input/intermediate')
 output_folder = os.path.join(project_folder, 'Data_Output/automated_checks')
 
 # Define input files
-area_input = os.path.join(project_folder, 'Data_Input/NorthAmericanBeringia_v1_30m.tif')
+area_input = os.path.join(project_folder, 'Data_Input/Landfire_AKVEG_Automated_Domain_30m_3338.tif')
 landfire_input = os.path.join(intermediate_folder, 'LA16_EVT_200.tif')
-zones_input = os.path.join(intermediate_folder, 'AlaskaYukon_VegetationZones_30m_3338.tif')
+biomes_input = os.path.join(intermediate_folder, 'AlaskaYukon_Biomes_30m_3338.tif')
 alnus_input = os.path.join(foliar_folder, 'alnus_30m_3338.tif')
 betshr_input = os.path.join(foliar_folder, 'betshr_30m_3338.tif')
 bettre_input = os.path.join(foliar_folder, 'bettre_30m_3338.tif')
@@ -58,7 +58,7 @@ forb_input = os.path.join(foliar_folder, 'forb_30m_3338.tif')
 picratio_input = os.path.join(derived_folder, 'picea_ratio_30m_3338.tif')
 picsum_input = os.path.join(derived_folder, 'picea_sum_30m_3338.tif')
 decratio_input = os.path.join(derived_folder, 'deciduous_ratio_30m_3338.tif')
-ndshrub_input = os.path.join(derived_folder, 'ndshrub_30m_3338.tif')
+ndshrub_input = os.path.join(derived_folder, 'alder_birch_willow_30m_3338.tif')
 eridwarf_input = os.path.join(derived_folder, 'ericaceous_dwarf_30m_3338.tif')
 wetland_input = os.path.join(derived_folder, 'wetland_indicator_30m_3338.tif')
 picwet_input = os.path.join(derived_folder, 'picmar_wet_indicator_30m_3338.tif')
@@ -68,10 +68,9 @@ vegetation_input = os.path.join(derived_folder, 'vegetation_30m_3338.tif')
 parsed_output = os.path.join(output_folder, round_date, 'AKVEG_Parsed_30m_3338.tif')
 
 # Prepare input rasters
-print('Opening raster files...')
 area_raster = rasterio.open(area_input)
 landfire_raster = rasterio.open(landfire_input)
-zones_raster = rasterio.open(zones_input)
+biomes_raster = rasterio.open(biomes_input)
 alnus_raster = rasterio.open(alnus_input)
 betshr_raster = rasterio.open(betshr_input)
 bettre_raster = rasterio.open(bettre_input)
@@ -116,7 +115,7 @@ with rasterio.open(parsed_output, 'w', **input_profile, BIGTIFF='YES') as dst:
     for block_index, window in area_raster.block_windows(1):
         #### LOAD BLOCKS
         area_block = area_raster.read(window=window, masked=False)
-        zones_block = zones_raster.read(window=window, masked=False)
+        biomes_block = biomes_raster.read(window=window, masked=False)
         alnus_block = alnus_raster.read(window=window, masked=False)
         betshr_block = betshr_raster.read(window=window, masked=False)
         bettre_block = bettre_raster.read(window=window, masked=False)
@@ -156,48 +155,50 @@ with rasterio.open(parsed_output, 'w', **input_profile, BIGTIFF='YES') as dst:
 
         #### 1. MAJOR BREAKS
 
-        # 1.17 Alder
+        # 1.17 Mesic Alder
         out_block = np.where((out_block == 253) & (alnus_block >= 30),
                              17, out_block)
         # 1.254 Coniferous trees dominant
-        out_block = np.where(((zones_block >= 2) & (zones_block <= 7)) & (out_block == 253)
-                             & (picsum_block >= 5),
+        out_block = np.where((out_block == 253) & (picsum_block >= 8)
+                             & ((biomes_block == 1) | (biomes_block == 2) | (biomes_block == 3)),
                              254, out_block)
         # 1.16 Deciduous trees dominant
         out_block = np.where((out_block == 253) & (dectre_block >= 20),
                              16, out_block)
-        # 1.31 Lichens are dominant or co-dominant
+        # 1.32 Lichens are dominant or co-dominant
         out_block = np.where((out_block == 253) & (lichen_block >= 15) & (erivag_block < 20),
-                             31, out_block)
+                             32, out_block)
 
         #### 2. SPRUCE WOODLAND
 
         # 2.1 Spruce-lichen woodland
-        out_block = np.where((out_block == 254) & (picsum_block < 15) & (lichen_block >= 15),
+        out_block = np.where((out_block == 254) & (picsum_block < 30) & (lichen_block >= 15),
+                             1, out_block)
+        out_block = np.where((out_block == 253) & ((picsum_block >= 4) & (picsum_block < 30)) & (lichen_block >= 15),
                              1, out_block)
 
         # 2.2 White spruce woodland
-        out_block = np.where((out_block == 254) & (picsum_block < 15) & (picratio_block >= 70),
+        out_block = np.where((out_block == 254) & (picsum_block <= 16) & (picratio_block >= 70),
                              2, out_block)
 
         # 2.3 White spruce-hardwood woodland
-        out_block = np.where((out_block == 2) & (dectre_block >= 8),
+        out_block = np.where((out_block == 2) & ((dectre_block >= 8) & (dectre_block <= 16)),
                              3, out_block)
 
         # 2.4 Black spruce woodland
-        out_block = np.where((out_block == 254) & (picsum_block < 15) & (picratio_block <= 30),
+        out_block = np.where((out_block == 254) & (picsum_block <= 16) & (picratio_block <= 30),
                              4, out_block)
 
         # 2.5 Black spruce-hardwood woodland
-        out_block = np.where((out_block == 4) & (dectre_block >= 8),
+        out_block = np.where((out_block == 4) & ((dectre_block >= 8) & (dectre_block <= 16)),
                              5, out_block)
 
         # 2.6 Mixed spruce woodland
-        out_block = np.where((out_block == 254) & (picsum_block < 15) & (picratio_block > 30),
+        out_block = np.where((out_block == 254) & (picsum_block <= 16) & (picratio_block > 30),
                              6, out_block)
 
         # 2.7 Mixed spruce-hardwood woodland
-        out_block = np.where((out_block == 6) & (dectre_block >= 8),
+        out_block = np.where((out_block == 6) & ((dectre_block >= 8) & (dectre_block <= 16)),
                              7, out_block)
 
         #### 3. SPRUCE FOREST TYPES
@@ -235,114 +236,122 @@ with rasterio.open(parsed_output, 'w', **input_profile, BIGTIFF='YES') as dst:
         # 5.14 Black spruce-tussock woodland
         out_block = np.where(((out_block == 9) | (out_block == 12)) & (erivag_block >= 20),
                              14, out_block)
+        out_block = np.where((out_block == 253) & (picsum_block >= 4) & (erivag_block >= 20),
+                             1, out_block)
 
         # 5.15 Black spruce peatland
         out_block = np.where(((out_block == 9) | (out_block == 12)) & (picwet_block >= 15),
                              15, out_block)
+        out_block = np.where((out_block == 253) & (picsum_block >= 4) & (picwet_block >= 15),
+                             1, out_block)
 
         #### 6. TUSSOCK TUNDRA TYPES
 
-        # 6.18 Low shrub-tussock tundra
+        # 6.19 Low shrub-tussock tundra
         out_block = np.where((out_block == 253) & (erivag_block >= 8) & (ndshrub_block < 25),
-                             18, out_block)
-
-        # 6.19 Dwarf shrub-tussock tundra
-        out_block = np.where((out_block == 18) & (ndshrub_block < 8),
                              19, out_block)
 
+        # 6.20 Dwarf shrub-tussock tundra
+        out_block = np.where((out_block == 19) & (ndshrub_block < 8),
+                             20, out_block)
+
         #### 7. ALDER TYPES
-        # 7.17 Alder is dominant
+        # 7.17 Mesic alder
         out_block = np.where((out_block == 253) & (alnus_block >= 18),
                              17, out_block)
 
-        # 7.20 Alder and willow are co-dominant
-        out_block = np.where(((out_block == 253) | (out_block == 17))
-                             & (alnus_block >= 15) & (salshr_block >= 15),
-                             20, out_block)
+        # 7.18 Wet alder
+        out_block = np.where((out_block == 17) & (wetland_block >= 25),
+                             18, out_block)
 
-        # 7.21 Alder and willow wet
-        out_block = np.where((out_block == 20) & (wetland_block >= 15),
+        # 7.21 Alder and willow are co-dominant
+        out_block = np.where(((out_block == 253) | (out_block == 17) | (out_block == 18))
+                             & (alnus_block >= 15) & (salshr_block >= 15),
                              21, out_block)
+
+        # 7.22 Alder and willow wet
+        out_block = np.where((out_block == 21) & (wetland_block >= 25),
+                             22, out_block)
 
         #### 8. WILLOW AND BIRCH TYPES
 
-        # 8.22 Mesic willow
+        # 8.23 Mesic willow
         out_block = np.where((out_block == 253) & (salshr_block >= 18),
-                             22, out_block)
-
-        # 8.23 Wet willow
-        out_block = np.where((out_block == 22) & (wetland_block >= 15),
                              23, out_block)
 
-        # 8.24 Wet shrub-sedge
-        out_block = np.where((out_block == 23) & (wetsed_block >= 30),
+        # 8.24 Wet willow
+        out_block = np.where((out_block == 23) & (wetland_block >= 25),
                              24, out_block)
 
-        # 8.25 Mesic birch-willow shrub
-        out_block = np.where((out_block == 22) & (betshr_block >= 15),
-                             25, out_block)
-        out_block = np.where((out_block == 253) & (betshr_block >= 15) & (salshr_block >= 15),
+        # 8.25 Wet shrub-sedge
+        out_block = np.where((out_block == 24) & (wetsed_block >= 30),
                              25, out_block)
 
-        # 8.26 Wet birch-willow shrub
+        # 8.26 Mesic birch-willow shrub
         out_block = np.where((out_block == 23) & (betshr_block >= 15),
                              26, out_block)
-        out_block = np.where((out_block == 25) & (wetland_block >= 15),
+        out_block = np.where((out_block == 253) & (betshr_block >= 15) & (salshr_block >= 15),
                              26, out_block)
 
-        # 8.27 Mesic birch shrub
-        out_block = np.where((out_block == 253) & (betshr_block >= 18),
+        # 8.27 Wet birch-willow shrub
+        out_block = np.where((out_block == 24) & (betshr_block >= 15),
                              27, out_block)
+        out_block = np.where((out_block == 26) & (wetland_block >= 25),
+                             27, out_block)
+
+        # 8.28 Mesic birch shrub
+        out_block = np.where((out_block == 253) & (betshr_block >= 18),
+                             28, out_block)
 
         #### 9. WET SEDGE AND PEATLAND TYPES
 
-        # 9.28 Wetland sedge meadow
+        # 9.29 Wetland sedge meadow
         out_block = np.where((out_block == 253) & (wetsed_block >= 15),
-                             28, out_block)
-
-        # 9.29 Peatland
-        out_block = np.where((out_block == 28) & (sphagn_block >= 20),
-                             29, out_block)
-        out_block = np.where((out_block == 253) & (sphagn_block >= 15),
                              29, out_block)
 
-        # 9.30 Dwarf shrub-sphagnum
-        out_block = np.where((out_block == 29)
-                             & ((evrshr_block >= 15) | (dryas_block >= 12) | (eridwarf_block >= 12)),
+        # 9.30 Peatland
+        out_block = np.where((out_block == 29) & (sphagn_block >= 20),
                              30, out_block)
+        out_block = np.where((out_block == 253) & (sphagn_block >= 15),
+                             30, out_block)
+
+        # 9.31 Dwarf shrub-sphagnum
+        out_block = np.where((out_block == 30)
+                             & ((evrshr_block >= 15) | (dryas_block >= 12) | (eridwarf_block >= 12)),
+                             31, out_block)
 
         #### 10. DWARF SHRUB TYPES
 
-        # 10.32 Dwarf shrub-lichen
-        out_block = np.where((out_block == 31)
+        # 10.33 Dwarf shrub-lichen
+        out_block = np.where((out_block == 32)
                              & ((evrshr_block >= 15) | (dryas_block >= 12) | (eridwarf_block >= 12)),
-                             32, out_block)
-
-        # 10.33 Ericaceous (dryas) dwarf shrub
-        out_block = np.where((out_block == 253) & (eridwarf_block >= 12) & (dryas_block < 30),
                              33, out_block)
 
-        # 10.34 Dryas dwarf shrub
-        out_block = np.where((out_block == 253) & (dryas_block >= 12),
+        # 10.34 Ericaceous (dryas) dwarf shrub
+        out_block = np.where((out_block == 253) & (eridwarf_block >= 12) & (dryas_block < 30),
                              34, out_block)
+
+        # 10.35 Dryas dwarf shrub
+        out_block = np.where((out_block == 253) & (dryas_block >= 12),
+                             35, out_block)
 
         #### 11. HERBACEOUS
 
-        # 11.35 Herbaceous mix
+        # 11.36 Herbaceous mix
         out_block = np.where((out_block == 253) & (forb_block + gramin_block >= 20)
-                             & ((forb_block != 255) & (gramin_block != 255)),
-                             35, out_block)
-
-        #### 12. SPARSE OR BARREN
-
-        # 12.36 Sparse vegetation
-        out_block = np.where((out_block == 253) & (vegetation_block - lichen_block < 25)
                              & ((forb_block != 255) & (gramin_block != 255)),
                              36, out_block)
 
-        # 12.37 Barren
-        out_block = np.where((out_block == 36) & (vegetation_block <= 10),
+        #### 12. SPARSE OR BARREN
+
+        # 12.37 Sparse vegetation
+        out_block = np.where((out_block == 253) & (vegetation_block - lichen_block < 25)
+                             & ((forb_block != 255) & (gramin_block != 255)),
                              37, out_block)
+
+        # 12.38 Barren
+        out_block = np.where((out_block == 37) & (vegetation_block <= 10),
+                             38, out_block)
 
         # Set no data values from area raster to no data
         out_block = np.where(area_block != 1, nodata, out_block)

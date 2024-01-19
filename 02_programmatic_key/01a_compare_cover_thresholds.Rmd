@@ -1,0 +1,112 @@
+---
+title: "Compare cover thresholds"
+author: "Matt Macander"
+date: "2024-01-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# library(raster)
+library(terra)
+library(sf)
+library(tidyverse)
+library(janitor)
+library(magrittr)
+library(RPostgres)
+library(lubridate)
+library(fs)
+library(mapview)
+library(glue)
+library(readxl)
+library(fuzzyjoin)
+
+options(scipen=50)
+
+if(.Platform$OS.type == "unix") {wRoot="/data/gis/"} else {wRoot="w:/"}
+wDir <- path(wRoot, "gis_projects/2023/23-241_Landfire")
+
+```
+
+Load observed vs predicted from model training data
+```{r Load PFT and foliar cover model frames including predictions}
+obsVPred_pft <- readRDS(path(wRoot, "gis_projects/2019/19-301_ABoVE_Biome_Shift/manuscript/pft_modeling_2021/model_assessment/allObsVPred_20220104.rds")) %>%
+  filter(!pft %in% c("tmlichen","tmlichen_dark2")) %>%
+  mutate(pft = glue("{pft}_30m")) %>%
+  select(pft, observed_cover_i, predicted_cover_i)
+
+foliar_csvs <- tibble(csv_path = dir_ls(path(wDir, "foliar_cover_results"), glob="*.csv")) %>%
+  mutate(pft = str_remove(path_file(csv_path), '_prediction.csv'))
+
+obsVPred_foliar <- pmap(foliar_csvs, function(csv_path, pft) {
+  df <- read_csv(csv_path)
+  df <- df %>%
+    mutate(pft = {{pft}})
+  return(df)
+}) %>%
+  list_rbind() %>%
+  mutate(observed_cover_i = round(cover),
+         predicted_cover_i = round(prediction),
+         pft = glue("{pft}_10m")) %>%
+  select(pft, observed_cover_i, predicted_cover_i)
+
+obsVPred_pft_foliar <- bind_rows(obsVPred_pft, obsVPred_foliar)
+
+obsVPred_counts <- obsVPred_pft_foliar %>% group_by(pft) %>% tally()
+
+```
+
+Calculate cumulative precentile rank tables for observed and predicted cover
+```{all pft xwalk}
+cumulative_obs <- obsVPred_pft_foliar %>%
+  group_by(pft) %>%
+  mutate(rank = rank(observed_cover_i, ties.method = "first")) %>%
+  mutate(percentile = rank / n()) %>%
+  group_by(pft, observed_cover_i) %>%
+  summarize(max_percentile = max(percentile))
+
+cumulative_pred <- obsVPred_pft_foliar %>%
+  group_by(pft) %>%
+  mutate(rank = rank(predicted_cover_i, ties.method = "first")) %>%
+  mutate(percentile = rank / n()) %>%
+  group_by(pft, predicted_cover_i) %>%
+  summarize(max_percentile = max(percentile))
+
+```
+
+Function to match observed and predicted by cumulative percentile rank
+```{r function}
+percentile_xwalk <- function(obs, pred, pft) {
+  obs_pft <- obs %>%
+    filter(pft == {{pft}})
+  pred_pft <- pred %>%
+    filter(pft == {{pft}})
+
+  result <- obs_pft %>%
+    difference_left_join(pred_pft, by="max_percentile", distance_col="percentile_diff") %>%
+    group_by(max_percentile.x) %>%
+    slice_min(percentile_diff) %>%
+    select(pft = pft.x, observed_cover_i, predicted_cover_i, max_percentile_obs = max_percentile.x, max_percentile_pred = max_percentile.y, percentile_diff)
+}
+
+```
+
+
+```{r run across all PFTs and save result}
+#Get list of PFTs
+pfts <- obsVPred_pft_foliar %>%
+  select(pft) %>%
+  distinct()
+
+#Set up data frame for batch processing
+by_pft <- pfts %>%
+  mutate(obs = list(cumulative_obs),
+         pred = list(cumulative_pred))
+
+#Calculate for all PFTs
+all_pfts <- pmap(by_pft, percentile_xwalk) %>%
+  list_rbind()
+
+#Save result
+write_csv(all_pfts, path(wDir, "foliar_cover_pft_top_cover_threshold_crosswalk_obs_v_pred.csv"))
+```

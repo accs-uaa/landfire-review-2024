@@ -1,0 +1,374 @@
+---
+title: "landfire_transition_plot"
+author: "Matt Macander"
+date: "2024-01-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# library(raster)
+library(terra)
+library(sf)
+library(tidyverse)
+library(janitor)
+library(magrittr)
+library(RPostgres)
+library(lubridate)
+library(fs)
+library(mapview)
+library(glue)
+library(readxl)
+library(fuzzyjoin)
+library(migest)
+library(Gmisc)
+library(viridis)
+library(patchwork)
+library(hrbrthemes)
+library(circlize)
+library(googlesheets4)
+library(networkD3)
+library(webshot)
+# library(webshot2)
+
+options(scipen=50)
+
+if(.Platform$OS.type == "unix") {wRoot="/data/gis/"} else {wRoot="w:/"}
+wDir <- path(wRoot, "gis_projects/2023/23-241_Landfire")
+
+
+```
+
+```{r evt subsets}
+# evt_by_sbcls <- evt_vat %>% group_by(EVT_CLASS, EVT_SBCLS) %>% summarize(area_sqkm = sum(area_sqkm), n=n())
+# write_csv(evt_vat, path(wDir, "LA16_EVT_200_vat_to_edit.csv"))
+
+evt_group_xwalk <- read_sheet("https://docs.google.com/spreadsheets/d/1CZRGKAGiOH2Q5WSIqY4Pql5PA5lykjOoH8l2l_TSB30/edit#gid=1652775845", sheet="evt_orig_group_xwalk") %>%
+  select(Value = EVT_ORIG, group)
+```
+
+```{r get tables}
+evt_x_rev_vat_in <- foreign::read.dbf(path(wRoot,
+                                           "gis_projects/2023/23-241_Landfire/data_package_v0.4_20240116/Data_Output/final_rasters",
+                                           "Landfire_EVT_LA16_v_Revised_30m_3338.tif.vat.dbf"))
+evt_vat <- foreign::read.dbf(path(wRoot, "/gis_projects/2023/23-241_Landfire/data_package_v0.4_20240116/Data_Input/landfire_evt/LA16_EVT_200.tif.vat.dbf")) %>%
+  mutate(area_sqkm = Count * 900 / 1000000) %>%
+  left_join(evt_group_xwalk)
+
+evt_vat %>% group_by(group) %>% summarize(area_sqkm = sum(area_sqkm), n=n())  
+
+rev_vat <- foreign::read.dbf(path(wRoot, "gis_projects/2023/23-241_Landfire/data_package_v0.4_20240116/Data_Output/final_rasters/Landfire_EVT_Revised_30m_3338.tif.vat.dbf")) %>%
+  mutate(area_sqkm = Count * 900 / 1000000)
+
+evt_x_rev_vat <- evt_x_rev_vat_in %>%
+  rename(EVT_Value = LA16_EVT_2,
+         Rev_Value = Landfire_E) %>%
+  left_join(evt_vat %>% select(Value, EVT_Name = EVT_NAME, EVT_Class = EVT_CLASS, group), by=c("EVT_Value"="Value")) %>%
+  left_join(rev_vat %>% select(Value, Rev_Name = label), by=c("Rev_Value"="Value")) %>%
+  mutate(area_sqkm = Count * 900 / 1000000,
+         EVT = glue("{EVT_Value}: {EVT_Name}"),
+         Rev = glue("{Rev_Value}: {Rev_Name}"))
+
+evt_x_rev_vat %>% summarize(area_sqkm = sum(area_sqkm))
+
+evt_x_rev_vat_filt <- evt_x_rev_vat %>%
+  group_by(group) %>%
+  mutate(pArea_group = area_sqkm / sum(area_sqkm)) %>%
+  # filter(area_sqkm >= 100)
+  filter(pArea_group >= 0.0001)
+evt_x_rev_vat_filt %>% ungroup() %>% summarize(area_sqkm = sum(area_sqkm))
+
+```
+
+```{r bar plot comparison}
+combined_vat <- bind_rows(
+  evt_vat %>% select(Value, Count, EVT_NAME, area_sqkm) %>% mutate(source="2016 EVT"),
+  rev_vat %>% select(Value, Count, EVT_NAME = label, area_sqkm) %>% mutate(source="AKVeg Revised EVT")) %>%
+  filter(Value != -9999) %>%
+  mutate(area_sqkm_log10 = pmax(0, log10(area_sqkm)),
+         EVT = glue("{Value}: {EVT_NAME}"),
+         EVT = fct_reorder(EVT, Value)
+         ) %>%
+  complete(EVT, source, fill=list(area_sqkm = 0, area_sqkm_log10 = 0))
+
+ggplot(combined_vat, aes(x=EVT, y=area_sqkm_log10, fill=source)) +
+  geom_col(position="dodge") +
+  theme(
+    axis.text.x = element_text(
+      angle = -90,
+      hjust = 0,
+      vjust = 0.3,
+      size = 8
+    )) 
+  # scale_y_log10()
+ggsave(path(wDir, "EVT 2016 v. Revised Columns.pdf"), width=17, height=11)
+```
+
+```{r example one sankey plot}
+evt_x_rev_vat_filt %>%
+  group_by(group) %>%
+  summarize(area_sqkm = sum(area_sqkm),
+            n = n())
+
+data_long <- evt_x_rev_vat_filt %>%
+  ungroup() %>%
+  # filter(EVT_Class == 'Arctic herbaceous') %>%
+  filter(str_starts(EVT_Class, 'Herbaceous')) %>%
+  # select(EVT_Value, Rev_Value, area_sqkm) %>%
+  # arrange(EVT_Value, Rev_Value)
+  select(EVT, Rev, area_sqkm) %>%
+  arrange(EVT, Rev)
+
+colnames(data_long) <- c("source", "target", "value")
+data_long$target <- paste(data_long$target, " ", sep="")
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+ 
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+# prepare colour scale
+ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B779FF","#1F9E89FF","#26828EFF","#31688EFF","#3E4A89FF","#482878FF","#440154FF"])'
+
+# Make the Network
+sankeyNetwork(Links = data_long, Nodes = nodes,
+                     Source = "IDsource", Target = "IDtarget",
+                     Value = "value", NodeID = "name", 
+                     sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=13, nodePadding=20)
+```
+
+```{r sankey function}
+sankey_by_group <- function(df, group) {
+  print(group)
+  # evt_x_rev_vat_filt %>%
+  #   group_by(group) %>%
+  #   summarize(area_sqkm = sum(area_sqkm),
+  #             n = n())
+  
+  data_long <- df %>%
+    ungroup() %>%
+    filter(group == {{group}}) %>%
+    select(EVT, Rev, area_sqkm) %>%
+    arrange(EVT, Rev)
+  
+  colnames(data_long) <- c("source", "target", "value")
+  data_long$target <- paste(data_long$target, " ", sep="")
+  
+  # From these flows we need to create a node data frame: it lists every entities involved in the flow
+  nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+   
+  # With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+  data_long$IDsource=match(data_long$source, nodes$name)-1 
+  data_long$IDtarget=match(data_long$target, nodes$name)-1
+  
+  # prepare colour scale
+  ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B779FF","#1F9E89FF","#26828EFF","#31688EFF","#3E4A89FF","#482878FF","#440154FF"])'
+  
+  # Make the Network
+  sn <- sankeyNetwork(Links = data_long, Nodes = nodes,
+                       Source = "IDsource", Target = "IDtarget",
+                       Value = "value", NodeID = "name", 
+                       sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=13, nodePadding=20)
+  sn
+  saveNetwork(sn, path(wDir, "transition_plots", glue("transition_{group}.html")))
+
+  # library(webshot)
+  # you convert it as png
+  webshot(path(wDir, "transition_plots", glue("transition_{group}.html")), path(wDir, "transition_plots", glue("transition_{group}.png")), vwidth = 2000, vheight = 1000)
+
+  return(group)
+}
+```
+
+```{r generate plots}
+# dir_create(path(wDir, "transition_plots"), mode="2775")
+# sankey_by_group(evt_x_rev_vat_filt, "Arctic_herbaceous")
+
+groups <- evt_group_xwalk %>%
+  select(group) %>%
+  distinct()
+
+pwalk(groups, sankey_by_group, df=evt_x_rev_vat_filt)
+```
+
+##OLD exploratory versions  
+```{r example}
+if (FALSE) {
+library(tidyverse)
+library(countrycode)
+# download Abel and Cohen (2019) estimates
+f <- read_csv("https://ndownloader.figshare.com/files/38016762", show_col_types = FALSE)
+f
+
+# use dictionary to get region to region flows
+d <- f %>%
+  mutate(
+    orig = countrycode(sourcevar = orig, custom_dict = dict_ims,
+                       origin = "iso3c", destination = "region"),
+    dest = countrycode(sourcevar = dest, custom_dict = dict_ims,
+                       origin = "iso3c", destination = "region")
+  ) %>%
+  group_by(year0, orig, dest) %>%
+  summarise_all(sum) %>%
+  ungroup()
+d
+
+# 2015-2020 pseudo-Bayesian estimates for plotting
+pb <- d %>%
+    filter(year0 == 2015) %>%
+    mutate(flow = da_pb_closed/1e6) %>%
+    select(orig, dest, flow)
+pb
+    
+# pdf(file = "chord.pdf")
+mig_chord(x = pb)
+# dev.off()
+# file.show("chord.pdf")
+
+# pass arguments to circlize::chordDiagramFromDataFrame
+# pdf(file = "chord.pdf")
+mig_chord(x = pb,
+          # order of regions
+          order = unique(pb$orig)[c(1, 3, 2, 6, 4, 5)],
+          # spacing for labels
+          preAllocateTracks = list(track.height = 0.3),
+          # colours
+          grid.col = c("blue", "royalblue", "navyblue", "skyblue", "cadetblue", "darkblue")
+          )
+# dev.off()
+# file.show("chord.pdf")
+
+# multiple line labels to fit on longer labels
+r <- pb %>%
+  sum_region() %>%
+  mutate(lab = str_wrap_n(string = region, n = 2)) %>%
+  separate(col = lab, into = c("lab1", "lab2"), sep = "\n", remove = FALSE, fill = "right")
+r
+
+# pdf(file = "chord.pdf")
+mig_chord(x = pb,
+          lab = r %>%
+            select(region, lab) %>%
+            deframe(),
+          preAllocateTracks = list(track.height = 0.25),
+          label_size = 0.8,
+          axis_size = 0.7
+          )
+# dev.off()
+# file.show("chord.pdf")
+
+# bending labels
+# pdf(file = "chord.pdf")
+mig_chord(x = pb,
+          lab_bend1 = r %>%
+            select(region, lab1) %>%
+            deframe(),
+          lab_bend2 = r %>%
+            select(region, lab2) %>%
+            deframe()
+          )
+# dev.off()
+# file.show("chord.pdf")
+
+
+# convert pdf to image file
+# library(magick)
+# p <- image_read_pdf("chord.pdf")
+# image_write(image = p, path = "chord.png")
+# file.show("chord.png")
+}
+```
+
+```{r example2}
+# library(magrittr)
+set.seed(1)
+n <- 100
+data <- 
+  data.frame(
+    Sex = sample(c("Male", "Female"),
+                 size = n,
+                 replace = TRUE,
+                 prob = c(.4, .6)),
+    Charnley_class = sample(c("A", "B", "C"), 
+                            size = n, 
+                            replace = TRUE))
+getProbs <- function(Chrnl_name){
+  prob <- data.frame(
+    A = 1/3 +
+      (data$Sex == "Male") * .25 +
+      (data$Sex != "Male") * -.25 +
+      (data[[Chrnl_name]] %in% "B") * -.5 +
+      (data[[Chrnl_name]] %in% "C") * -2 ,
+    B = 1/3 +
+      (data$Sex == "Male") * .1 + 
+      (data$Sex != "Male") * -.05 +
+      (data[[Chrnl_name]] == "C") * -2,
+    C = 1/3 +
+      (data$Sex == "Male") * -.25 +
+      (data$Sex != "Male") * .25)
+  
+  # Remove negative probabilities
+  t(apply(prob, 1, function(x) {
+    if (any(x < 0)){
+      x <- x - min(x) + .05
+      }
+    x
+    }))
+}
+  
+Ch_classes <- c("Charnley_class")
+Ch_classes %<>% c(sprintf("%s_%dyr", Ch_classes, c(1,2,6)))
+for (i in 1:length(Ch_classes)){
+  if (i == 1)
+    next;
+
+  data[[Ch_classes[i]]] <- 
+    apply(getProbs(Ch_classes[i-1]), 1, function(p)
+      sample(c("A", "B", "C"), 
+             size = 1, 
+             prob = p)) %>%
+    factor(levels = c("A", "B", "C"))
+}
+```
+
+
+```{r example3}
+# Libraries
+library(tidyverse)
+library(viridis)
+library(patchwork)
+library(hrbrthemes)
+library(circlize)
+
+# Load dataset from github
+data <- read.table("https://raw.githubusercontent.com/holtzy/data_to_viz/master/Example_dataset/13_AdjacencyDirectedWeighted.csv", header=TRUE)
+# Package
+library(networkD3)
+
+# I need a long format
+data_long <- data %>%
+  rownames_to_column %>%
+  gather(key = 'key', value = 'value', -rowname) %>%
+  filter(value > 0)
+colnames(data_long) <- c("source", "target", "value")
+data_long$target <- paste(data_long$target, " ", sep="")
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+ 
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+# prepare colour scale
+ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B779FF","#1F9E89FF","#26828EFF","#31688EFF","#3E4A89FF","#482878FF","#440154FF"])'
+
+# Make the Network
+sankeyNetwork(Links = data_long, Nodes = nodes,
+                     Source = "IDsource", Target = "IDtarget",
+                     Value = "value", NodeID = "name", 
+#                     sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=13, nodePadding=20)
+                     sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=10, nodePadding=5)
+```

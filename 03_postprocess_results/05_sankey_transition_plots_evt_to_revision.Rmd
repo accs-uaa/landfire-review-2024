@@ -36,7 +36,8 @@ options(scipen=50)
 if(.Platform$OS.type == "unix") {wRoot="/data/gis/"} else {wRoot="w:/"}
 wDir <- path(wRoot, "gis_projects/2023/23-241_Landfire")
 
-
+fontsize <- 10
+nodepadding <- 5
 ```
 
 ```{r evt subsets}
@@ -58,13 +59,14 @@ evt_vat <- foreign::read.dbf(path(wRoot, "/gis_projects/2023/23-241_Landfire/dat
 evt_vat %>% group_by(group) %>% summarize(area_sqkm = sum(area_sqkm), n=n())  
 
 rev_vat <- foreign::read.dbf(path(wRoot, "gis_projects/2023/23-241_Landfire/data_package_v0.4_20240116/Data_Output/final_rasters/Landfire_EVT_Revised_30m_3338.tif.vat.dbf")) %>%
-  mutate(area_sqkm = Count * 900 / 1000000)
+  mutate(area_sqkm = Count * 900 / 1000000) %>%
+  left_join(evt_group_xwalk)
 
 evt_x_rev_vat <- evt_x_rev_vat_in %>%
   rename(EVT_Value = LA16_EVT_2,
          Rev_Value = Landfire_E) %>%
   left_join(evt_vat %>% select(Value, EVT_Name = EVT_NAME, EVT_Class = EVT_CLASS, group), by=c("EVT_Value"="Value")) %>%
-  left_join(rev_vat %>% select(Value, Rev_Name = label), by=c("Rev_Value"="Value")) %>%
+  left_join(rev_vat %>% select(Value, Rev_Name = label, Rev_group = group), by=c("Rev_Value"="Value")) %>%
   mutate(area_sqkm = Count * 900 / 1000000,
          EVT = glue("{EVT_Value}: {EVT_Name}"),
          Rev = glue("{Rev_Value}: {Rev_Name}"))
@@ -77,6 +79,14 @@ evt_x_rev_vat_filt <- evt_x_rev_vat %>%
   # filter(area_sqkm >= 100)
   filter(pArea_group >= 0.0001)
 evt_x_rev_vat_filt %>% ungroup() %>% summarize(area_sqkm = sum(area_sqkm))
+
+evt_x_rev_vat_filt_rev <- evt_x_rev_vat %>%
+  group_by(Rev_group) %>%
+  mutate(pArea_Rev_group = area_sqkm / sum(area_sqkm)) %>%
+  # filter(area_sqkm >= 100)
+  filter(pArea_Rev_group >= 0.001)
+evt_x_rev_vat_filt_rev %>% ungroup() %>% summarize(area_sqkm = sum(area_sqkm))
+
 
 ```
 
@@ -136,7 +146,7 @@ ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B
 sankeyNetwork(Links = data_long, Nodes = nodes,
                      Source = "IDsource", Target = "IDtarget",
                      Value = "value", NodeID = "name", 
-                     sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=13, nodePadding=20)
+                     sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=fontsize, nodePadding=nodepadding)
 ```
 
 ```{r sankey function}
@@ -170,7 +180,7 @@ sankey_by_group <- function(df, group) {
   sn <- sankeyNetwork(Links = data_long, Nodes = nodes,
                        Source = "IDsource", Target = "IDtarget",
                        Value = "value", NodeID = "name", 
-                       sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=13, nodePadding=20)
+                       sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=fontsize, nodePadding=nodepadding)
   sn
   saveNetwork(sn, path(wDir, "transition_plots", glue("transition_{group}.html")))
 
@@ -191,6 +201,64 @@ groups <- evt_group_xwalk %>%
   distinct()
 
 pwalk(groups, sankey_by_group, df=evt_x_rev_vat_filt)
+```
+
+
+```{r inverse sankey function, rev to pre}
+sankey_by_group_inv <- function(df, group) {
+  print(group)
+  # evt_x_rev_vat_filt %>%
+  #   group_by(group) %>%
+  #   summarize(area_sqkm = sum(area_sqkm),
+  #             n = n())
+  
+  data_long <- df %>%
+    ungroup() %>%
+    filter(Rev_group == {{group}}) %>%
+    select(EVT, Rev, area_sqkm) %>%
+    arrange(EVT, Rev)
+  
+  colnames(data_long) <- c("source", "target", "value")
+  data_long$target <- paste(data_long$target, " ", sep="")
+  
+  # From these flows we need to create a node data frame: it lists every entities involved in the flow
+  nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+   
+  # With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+  data_long$IDsource=match(data_long$source, nodes$name)-1 
+  data_long$IDtarget=match(data_long$target, nodes$name)-1
+  
+  # prepare colour scale
+  ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B779FF","#1F9E89FF","#26828EFF","#31688EFF","#3E4A89FF","#482878FF","#440154FF"])'
+  
+  # Make the Network
+  sn <- sankeyNetwork(Links = data_long, Nodes = nodes,
+                       Source = "IDsource", Target = "IDtarget",
+                       Value = "value", NodeID = "name", 
+                       sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=fontsize, nodePadding=nodepadding)
+  sn
+  saveNetwork(sn, path(wDir, "inverse_transition_plots/html", glue("inv_transition_{group}.html")))
+
+  # library(webshot)
+  # you convert it as png
+  webshot(path(wDir, "inverse_transition_plots/html", glue("inv_transition_{group}.html")), path(wDir, "inverse_transition_plots", glue("inv_transition_{group}.png")), vwidth = 2000, vheight = 1000)
+
+  return(group)
+}
+
+```
+
+```{r generate inv plots}
+dir_create(path(wDir, "inverse_transition_plots/html"), mode="2775")
+# sankey_by_group(evt_x_rev_vat_filt, "Arctic_herbaceous")
+
+# groups <- evt_group_xwalk %>%
+#   select(group) %>%
+#   distinct()
+
+# df <- evt_x_rev_vat_filt_rev
+# group <- 'Boreal_shrubs'
+pwalk(groups, sankey_by_group_inv, df=evt_x_rev_vat_filt_rev)
 ```
 
 ##OLD exploratory versions  

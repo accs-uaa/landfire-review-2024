@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Post-process automated checks
 # Author: Timm Nawrocki
-# Last Updated: 2024-01-17
+# Last Updated: 2024-01-27
 # Usage: Must be executed in an ArcGIS Pro Python 3.9+ distribution.
 # Description: "Post-process automated checks" creates attribute tables and pyramids for rasters that result from the automated checks.
 # ---------------------------------------------------------------------------
@@ -14,7 +14,7 @@ from akutils import *
 import arcpy
 
 # Set round date
-round_date = 'round_20240114'
+round_date = 'round_20240125'
 
 # Set root directory
 drive = 'D:/'
@@ -55,7 +55,7 @@ parsed_dictionary = {1: 'spruce-lichen woodland',
                      22: 'wet alder-willow',
                      23: 'mesic willow',
                      24: 'wet willow',
-                     25: 'wet shrub-sedge',
+                     25: 'wet shrub-sphagnum',
                      26: 'mesic birch-willow',
                      27: 'wet birch-willow',
                      28: 'mesic birch shrub',
@@ -69,7 +69,8 @@ parsed_dictionary = {1: 'spruce-lichen woodland',
                      36: 'herbaceous mix',
                      37: 'sparse',
                      38: 'barren',
-                     253: 'no type assigned'}
+                     253: 'no type assigned',
+                     254: 'undistinguished spruce'}
 landfire_dictionary = {1: 'no assignment',
                        255: 'not mapped',
                        4401: 'Alaska Arctic Coastal Sedge-Dwarf-Shrubland',
@@ -154,6 +155,7 @@ landfire_dictionary = {1: 'no assignment',
                        7669: 'Temperate Pacific Intertidal Flat',
                        7733: 'North Pacific Montane Massive Bedrock, Cliff, and Talus',
                        7735: 'North American Glacier and Ice Field',
+                       7737: 'North American Glacial Outwash',
                        7754: 'Agriculture-Pasture and Hay',
                        7755: 'Agriculture-Cultivated Crops and Irrigated Agriculture',
                        10004: 'Western North American Boreal Mixed Spruce-Hardwood Forest & Woodland',

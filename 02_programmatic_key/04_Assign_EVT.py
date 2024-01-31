@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Assign EVT
 # Author: Timm Nawrocki
-# Last Updated: 2024-01-17
+# Last Updated: 2024-01-27
 # Usage: Execute in Python 3.9+.
 # Description: "Assign EVT" combines the AKVEG parsed results into the Landfire Map
 # ---------------------------------------------------------------------------
@@ -18,7 +18,7 @@ from akutils import *
 nodata = -32768
 
 # Set round date
-round_date = 'round_20240114'
+round_date = 'round_20240125'
 
 # Set root directory
 drive = 'D:/'
@@ -37,6 +37,7 @@ landfire_input = os.path.join(intermediate_folder, 'LA16_EVT_200.tif')
 zones_input = os.path.join(intermediate_folder, 'AlaskaYukon_VegetationZones_30m_3338.tif')
 biomes_input = os.path.join(intermediate_folder, 'AlaskaYukon_Biomes_30m_3338.tif')
 subboreal_input = os.path.join(intermediate_folder, 'Alaska_EcologicalSystems_Subboreal_30m_3338.tif')
+elevation_input = os.path.join(intermediate_folder, 'Elevation_30m_3338.tif')
 parsed_input = os.path.join(output_folder, round_date, 'akveg_parsed_30m_3338.tif')
 
 # Define output files
@@ -48,6 +49,7 @@ landfire_raster = rasterio.open(landfire_input)
 zones_raster = rasterio.open(zones_input)
 biomes_raster = rasterio.open(biomes_input)
 subboreal_raster = rasterio.open(subboreal_input)
+elevation_raster = rasterio.open(elevation_input)
 parsed_raster = rasterio.open(parsed_input)
 
 # Parse EVT
@@ -69,6 +71,7 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
         zones_block = zones_raster.read(window=window, masked=False)
         biomes_block = biomes_raster.read(window=window, masked=False)
         subboreal_block = subboreal_raster.read(window=window, masked=False)
+        elevation_block = elevation_raster.read(window=window, masked=False)
         lf_block = landfire_raster.read(window=window, masked=False)
         in_block = parsed_raster.read(window=window, masked=False)
 
@@ -94,7 +97,7 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
                              4456, out_block)
         out_block = np.where((out_block == 1)
                              & (in_block == 15)
-                             & (biomes_block == 3),
+                             & ((biomes_block == 2) | (biomes_block == 3)),
                              4456, out_block)
 
         # 4467. Western North American Boreal Mesic-Wet Black Spruce Forest and Woodland
@@ -182,11 +185,11 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
         # 4408. Alaska Sub-boreal Mesic Subalpine Alder Shrubland
         out_block = np.where((lf_block == 4408)
                              & ((in_block == 17) | (in_block == 21))
-                             & (subboreal_block == 1),
+                             & ((subboreal_block == 1) & (biomes_block == 3)),
                              4408, out_block)
         out_block = np.where((out_block == 1)
                              & ((in_block == 17) | (in_block == 21))
-                             & (subboreal_block == 1),
+                             & ((subboreal_block == 1) & (biomes_block == 3)),
                              4408, out_block)
 
         # 4425. Alaskan Pacific-Aleutian Alder-Salmonberry-Copperbush Shrubland
@@ -207,32 +210,48 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
 
         # 4431. Aleutian Mesic-Wet Willow Shrubland
         out_block = np.where((lf_block == 4431)
-                             & ((in_block == 23) | (in_block == 24) | (in_block == 25) | (in_block == 26) | (in_block == 27))
+                             & ((in_block == 22) | (in_block == 23) | (in_block == 24) | (in_block == 26) | (in_block == 27))
                              & ((biomes_block == 4) | (biomes_block == 5)),
                              4431, out_block)
         out_block = np.where((out_block == 1)
-                             & ((in_block == 23) | (in_block == 24) | (in_block == 25) | (in_block == 26) | (in_block == 27))
+                             & ((in_block == 22) | (in_block == 23) | (in_block == 24) | (in_block == 26) | (in_block == 27))
                              & ((biomes_block == 4) | (biomes_block == 5)),
                              4431, out_block)
 
         # 4442. North American Arctic Mesic-Wet Low Willow Shrubland
         out_block = np.where(((lf_block == 4442) | (lf_block == 4441))
-                             & ((in_block == 23) | (in_block == 24) | (in_block == 25) | (in_block == 27))
+                             & ((in_block == 23) | (in_block == 24) | (in_block == 27))
                              & ((biomes_block == 6) | (biomes_block == 7)),
                              4442, out_block)
         out_block = np.where((out_block == 1)
-                             & ((in_block == 23) | (in_block == 24) | (in_block == 25) | (in_block == 27))
+                             & ((in_block == 23) | (in_block == 24) | (in_block == 27))
                              & ((biomes_block == 6) | (biomes_block == 7)),
+                             4442, out_block)
+        out_block = np.where(((lf_block == 4442) | (lf_block == 4441))
+                             & (in_block == 25)
+                             & (zones_block == 12),
+                             4442, out_block)
+        out_block = np.where((out_block == 1)
+                             & (in_block == 25)
+                             & (zones_block == 12),
                              4442, out_block)
 
         # 4444. North American Arctic Scrub Birch-Ericaceous Shrubland
         out_block = np.where((lf_block == 4444)
-                             & (in_block == 28)
+                             & ((in_block == 26) | (in_block == 28))
                              & ((biomes_block == 6) | (biomes_block == 7)),
                              4444, out_block)
         out_block = np.where((out_block == 1)
-                             & (in_block == 28)
+                             & ((in_block == 26) | (in_block == 28))
                              & ((biomes_block == 6) | (biomes_block == 7)),
+                             4444, out_block)
+        out_block = np.where((lf_block == 4444)
+                             & (in_block == 34)
+                             & ((zones_block == 5) | (zones_block == 6) | (zones_block == 11) | (zones_block == 12)),
+                             4444, out_block)
+        out_block = np.where((out_block == 1)
+                             & (in_block == 34)
+                             & ((zones_block == 5) | (zones_block == 6) | (zones_block == 11) | (zones_block == 12)),
                              4444, out_block)
 
         # 4465. Western North American Boreal Mesic Scrub Birch-Willow Shrubland
@@ -255,36 +274,44 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
                              & (biomes_block == 3),
                              4471, out_block)
 
-        # 4472. Western North American Boreal Shrub-Sedge Bog & Acidic Fen
-        out_block = np.where(((lf_block == 4472) | (lf_block == 4473))
-                             & ((in_block == 25) | (in_block == 30))
-                             & (biomes_block == 3),
-                             4472, out_block)
-        out_block = np.where((out_block == 1)
-                             & ((in_block == 25) | (in_block == 30))
-                             & (biomes_block == 3),
-                             4472, out_block)
-
         # 7663. North Pacific Shrub Swamp
         out_block = np.where((lf_block == 7663)
-                             & ((in_block == 18) | (in_block == 22) | (in_block == 24) | (in_block == 25) | (in_block == 27)
-                                & (biomes_block == 1) | (biomes_block == 2)),
+                             & ((in_block == 18) | (in_block == 22) | (in_block == 24) | (in_block == 27))
+                                & ((biomes_block == 1) | (biomes_block == 2)),
                              7663, out_block)
         out_block = np.where((out_block == 1)
-                             & ((in_block == 18) | (in_block == 22) | (in_block == 24) | (in_block == 25) | (in_block == 27)
-                                & (biomes_block == 1) | (biomes_block == 2)),
+                             & ((in_block == 18) | (in_block == 22) | (in_block == 24) | (in_block == 27))
+                                & ((biomes_block == 1) | (biomes_block == 2)),
                              7663, out_block)
 
 
-        #### SEDGE (-SHRUB) TYPES
+        #### SEDGE/PEATLAND (-SHRUB) TYPES
+
+        # 4472. Western North American Boreal Shrub-Sedge Bog & Acidic Fen
+        out_block = np.where(((lf_block == 4472) | (lf_block == 4473))
+                             & ((in_block == 25) | (in_block == 30) | (in_block == 31))
+                             & (biomes_block == 3),
+                             4472, out_block)
+        out_block = np.where((out_block == 1)
+                             & ((in_block == 25) | (in_block == 30) | (in_block == 31))
+                             & (biomes_block == 3),
+                             4472, out_block)
+        out_block = np.where(((lf_block == 4472) | (lf_block == 4473))
+                             & (in_block == 25)
+                             & ((zones_block == 10) | (zones_block == 11)),
+                             4472, out_block)
+        out_block = np.where((out_block == 1)
+                             & (in_block == 25)
+                             & ((zones_block == 10) | (zones_block == 11)),
+                             4472, out_block)
 
         # 4911. Alaskan Pacific Acidic Sedge Peatland
         out_block = np.where(((lf_block == 4911) | (lf_block == 4411))
-                             & ((in_block == 29) | (in_block == 30) | (in_block == 31))
+                             & ((in_block == 25) | (in_block == 29) | (in_block == 30) | (in_block == 31))
                              & ((biomes_block == 1) | (biomes_block == 2) | (biomes_block == 4) | (biomes_block == 5)),
                              4911, out_block)
         out_block = np.where((out_block == 1)
-                             & ((in_block == 30) | (in_block == 31))
+                             & ((in_block == 25) | (in_block == 30) | (in_block == 31))
                              & ((biomes_block == 1) | (biomes_block == 2) | (biomes_block == 4) | (biomes_block == 5)),
                              4911, out_block)
 
@@ -352,11 +379,11 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
 
         # 4437. North American Arctic Dwarf-shrub-Wet Sedge-Sphagnum Peatland
         out_block = np.where(((lf_block == 4437) | (lf_block == 4937))
-                             & ((in_block == 30) | (in_block == 31))
+                             & ((in_block == 25) | (in_block == 30) | (in_block == 31))
                              & ((biomes_block == 6) | (biomes_block == 7)),
                              4437, out_block)
         out_block = np.where((out_block == 1)
-                             & (in_block == 31)
+                             & ((in_block == 25) | (in_block == 30) | (in_block == 31))
                              & ((biomes_block == 6) | (biomes_block == 7)),
                              4437, out_block)
 
@@ -369,59 +396,70 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
 
         # 4405. Alaska Arctic Permafrost Plateau Dwarf-Shrub Lichen Tundra
         out_block = np.where((lf_block == 4405)
-                             & ((in_block == 19) | (in_block == 20) | (in_block == 33))
+                             & ((in_block == 19) | (in_block == 20) | (in_block == 32)
+                                | (in_block == 33) | (in_block == 34) | (in_block == 35))
                              & ((zones_block == 6) | (zones_block == 10) | (zones_block == 11)),
                              4405, out_block)
 
+        # 4412. Alaskan Pacific Alpine-Subalpine Dwarf-shrubland and Heath
+        out_block = np.where((lf_block == 4412)
+                             & ((in_block == 34) | (in_block == 35))
+                             & ((zones_block == 1) | (zones_block == 2) | ((zones_block == 3) & (subboreal_block == 1))),
+                             4412, out_block)
+        out_block = np.where((out_block == 1)
+                             & ((in_block == 34) | (in_block == 35))
+                             & ((zones_block == 1) | (zones_block == 2) | ((zones_block == 3) & (subboreal_block == 1))),
+                             4412, out_block)
+
         # 4429. Aleutian Ericaceous Dwarf-shrubland Heath and Fell-field
         out_block = np.where((lf_block == 4429)
-                             & (in_block == 34)
-                             & ((biomes_block == 4) | (biomes_block == 5)),
+                             & ((in_block == 34) | (in_block == 35))
+                             & ((zones_block == 7) | (zones_block == 8) | (zones_block == 9) | (zones_block == 10)),
                              4429, out_block)
         out_block = np.where((out_block == 1)
-                             & (in_block == 34)
-                             & ((biomes_block == 4) | (biomes_block == 5)),
+                             & ((in_block == 34) | (in_block == 35))
+                             & ((zones_block == 7) | (zones_block == 8) | (zones_block == 9) | (zones_block == 10)),
                              4429, out_block)
 
         # 4435. North American Arctic Dryas Tundra
         out_block = np.where((lf_block == 4435)
                              & (in_block == 35)
-                             & ((biomes_block == 6) | (biomes_block == 7)),
+                             & ((zones_block == 5) | (zones_block == 6) | (zones_block == 11) | (zones_block == 12)),
                              4435, out_block)
         out_block = np.where((out_block == 1)
                              & (in_block == 35)
-                             & ((biomes_block == 6) | (biomes_block == 7)),
+                             & ((zones_block == 5) | (zones_block == 6) | (zones_block == 11) | (zones_block == 12)),
                              4435, out_block)
 
         # 4436. North American Arctic Dwarf-Shrub Lichen Tundra
         out_block = np.where((lf_block == 4436)
-                             & (in_block == 33)
-                             & ((biomes_block != 1) & (biomes_block != 2)),
+                             & (in_block == 33),
                              4436, out_block)
         out_block = np.where((out_block == 1)
-                             & (in_block == 33)
-                             & ((biomes_block != 1) & (biomes_block != 2)),
+                             & (in_block == 33),
                              4436, out_block)
 
-        # 4435. Western North American Boreal Alpine Dwarf-shrubland
-        out_block = np.where((lf_block == 4435)
+        # 4453. Western North American Boreal Alpine Dwarf-shrubland
+        out_block = np.where((lf_block == 4453)
                              & ((in_block == 34) | (in_block == 35))
-                             & (biomes_block == 3),
-                             4435, out_block)
+                             & ((zones_block == 4) | ((zones_block == 3) | (subboreal_block != 1))),
+                             4453, out_block)
         out_block = np.where((out_block == 1)
                              & ((in_block == 34) | (in_block == 35))
-                             & (biomes_block == 3),
-                             4435, out_block)
+                             & ((zones_block == 4) | ((zones_block == 3) | (subboreal_block != 1))),
+                             4453, out_block)
 
         #### HERBACEOUS TYPES
 
         # 4407. Alaska Sub-boreal and Maritime Alpine Mesic Herbaceous Meadow
         out_block = np.where((lf_block == 4407)
                              & (in_block == 36)
+                             & (elevation_block >= 800)
                              & ((biomes_block == 1) | (biomes_block == 2) | (subboreal_block == 1)),
                              4407, out_block)
         out_block = np.where((out_block == 1)
                              & (in_block == 36)
+                             & (elevation_block >= 800)
                              & ((biomes_block == 1) | (biomes_block == 2) | (subboreal_block == 1)),
                              4407, out_block)
 
@@ -445,10 +483,14 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
                              & ((biomes_block == 6) | (biomes_block == 7)),
                              4440, out_block)
 
-        # 4454. Western North American Boreal Alpine Mesic Herbaceous Meadow (Retain Original)
+        # 4454. Western North American Boreal Alpine Mesic Herbaceous Meadow
         out_block = np.where((lf_block == 4454)
-                             & ((in_block != 32) & (in_block != 33))
-                             & (biomes_block == 3),
+                             & (in_block == 36) & (elevation_block >= 1200)
+                             & (biomes_block == 3) & (subboreal_block != 1),
+                             4454, out_block)
+        out_block = np.where((out_block == 1)
+                             & (in_block == 36) & (elevation_block >= 1200)
+                             & (biomes_block == 3) & (subboreal_block != 1),
                              4454, out_block)
 
         # 4460. Western North American Boreal Dry Grassland (Retain Original)
@@ -457,13 +499,13 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
                              4460, out_block)
 
         # 4464. Western North American Boreal Mesic Bluejoint-Forb Meadow
-        out_block = np.where((lf_block == 4464)
-                             & (in_block == 36)
-                             & ((biomes_block == 2) | (biomes_block == 3)),
+        out_block = np.where((out_block == 1)
+                             & (in_block == 36) & (elevation_block < 800)
+                             & ((subboreal_block == 1) | (zones_block == 1) | (zones_block == 2)),
                              4464, out_block)
         out_block = np.where((out_block == 1)
-                             & (in_block == 36)
-                             & (biomes_block == 3),
+                             & (in_block == 36) & (elevation_block < 1200)
+                             & (biomes_block == 3) & (subboreal_block != 1),
                              4464, out_block)
 
 
@@ -472,15 +514,10 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
         # Retain original classification
         out_block = np.where((lf_block == 4406)
                              | (lf_block == 4409)
-                             | (lf_block == 4412)
                              | (lf_block == 4415)
                              | (lf_block == 4416)
                              | (lf_block == 4417)
-                             | (lf_block == 4418)
-                             | (lf_block == 4419)
-                             | (lf_block == 4420)
                              | (lf_block == 4421)
-                             | (lf_block == 4422)
                              | (lf_block == 4423)
                              | (lf_block == 4426)
                              | (lf_block == 4428)
@@ -488,7 +525,6 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
                              | (lf_block == 4449)
                              | (lf_block == 4459)
                              | (lf_block == 4947)
-                             | (lf_block == 7178)
                              | (lf_block == 7191)
                              | (lf_block == 7192)
                              | (lf_block == 7193)
@@ -508,6 +544,7 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
                              | (lf_block == 7668)
                              | (lf_block == 7669)
                              | (lf_block == 7735)
+                             | (lf_block == 7737)
                              | (lf_block == 7754)
                              | (lf_block == 7755),
                              lf_block, out_block)
@@ -537,12 +574,10 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
 
         # 4439. North American Arctic Lichen Tundra
         out_block = np.where((lf_block == 4439)
-                             & (in_block == 32)
-                             & ((biomes_block != 1) & (biomes_block != 2)),
+                             & (in_block == 32),
                              4439, out_block)
         out_block = np.where((out_block == 1)
-                             & (in_block == 32)
-                             & ((biomes_block != 1) & (biomes_block != 2)),
+                             & (in_block == 32),
                              4439, out_block)
 
         # 4445. North American Arctic Sparse Tundra
@@ -582,14 +617,18 @@ with rasterio.open(evt_output, 'w', **input_profile, BIGTIFF='YES') as dst:
         out_block = np.where(out_block == 4447,
                              4947, out_block)
 
-        # Southern boreal tussock tundra to sedge-shrub
-        out_block = np.where(((out_block == 4448) | (out_block == 4450))
-                             & (zones_block == 3),
-                             4472, out_block)
-
         # Set no data values from area raster to no data
         out_block = np.where(area_block != 1, nodata, out_block)
 
+        # Remove types for alpine rock below certain elevation
+        out_block = np.where((out_block == 4432) & (elevation_block < 20),
+                             1, out_block)  # Aleutian
+        out_block = np.where((out_block == 4434) & (elevation_block < 500),
+                             1, out_block)  # Arctic
+        out_block = np.where((out_block == 4458) & (elevation_block < 800),
+                             1, out_block)  # Boreal
+        out_block = np.where((out_block == 7733) & (elevation_block < 1000),
+                             1, out_block)  # North Pacific
 
         #### EXPORT
 

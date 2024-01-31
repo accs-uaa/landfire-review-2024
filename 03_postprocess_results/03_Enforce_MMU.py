@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # ---------------------------------------------------------------------------
-# Create revised Landfire EVT
+# Enforce minimum mapping unit
 # Author: Timm Nawrocki
-# Last Updated: 2024-01-17
+# Last Updated: 2024-01-28
 # Usage: Must be executed in an ArcGIS Pro Python 3.9+ distribution.
-# Description: "Create revised Landfire EVT" combines the EVT that resulted from the automated checks with the original Landfire 2016 EVT and creates a status raster identifying changes from the original.
+# Description: "Enforce minimum mapping unit" removes and replaces map units less than 1 acre in area.
 # ---------------------------------------------------------------------------
 
 # Import packages
@@ -12,9 +12,17 @@ import os
 import time
 from akutils import *
 import arcpy
+from arcpy.sa import Con
+from arcpy.sa import ExtractByAttributes
+from arcpy.sa import ExtractByMask
+from arcpy.sa import Nibble
+from arcpy.sa import Raster
+from arcpy.sa import RegionGroup
+from arcpy.sa import SetNull
 
 # Set round date
-round_date = 'round_20240114'
+round_date = 'round_20240125'
+version = 'v1.0_20240126'
 
 # Set root directory
 drive = 'D:/'
@@ -22,11 +30,22 @@ root_folder = 'ACCS_Work'
 
 # Define folder structure
 project_folder = os.path.join(drive, root_folder, 'Projects/VegetationEcology/Landfire_BpS/Data')
-output_folder = os.path.join(project_folder, 'Data_Output/final_rasters')
+work_geodatabase = os.path.join(project_folder, 'Landfire_BpS.gdb')
+input_folder = os.path.join(project_folder, 'Data_Output/final_rasters')
+output_folder = os.path.join(project_folder, 'Data_Output/data_package/data_package_' + version, 'Data_Output/final_rasters')
+
+# Define workspace geodatabase
+workspace_geodatabase = os.path.join(project_folder, 'Landfire_Workspace.gdb')
 
 # Define input datasets
-revised_input = os.path.join(output_folder, round_date, 'Landfire_EVT_Revised_30m_3338.tif')
-status_input = os.path.join(output_folder, round_date, 'Landfire_EVT_Status_30m_3338.tif')
+area_input = os.path.join(project_folder, 'Data_Input/Landfire_Domain_30m_3338.tif')
+revised_input = os.path.join(input_folder, round_date, 'Landfire_EVT_Revised_30m_3338.tif')
+
+# Define output datasets
+region_output = os.path.join(input_folder, round_date, 'region_output.tif')
+mask_output = os.path.join(input_folder, round_date, 'mask_output.tif')
+nibble_output = os.path.join(input_folder, round_date, 'nibble_output.tif')
+revised_output = os.path.join(output_folder, 'Landfire_EVT_Revised_30m_3338.tif')
 
 # Define attribute dictionaries
 landfire_dictionary = {1: 'no assignment',
@@ -118,57 +137,140 @@ landfire_dictionary = {1: 'no assignment',
                        7755: 'Agriculture-Cultivated Crops and Irrigated Agriculture',
                        10004: 'Western North American Boreal Mixed Spruce-Hardwood Forest & Woodland',
                        10005: 'Western North American Boreal Mesic Alder Shrubland'}
-status_dictionary = {1: 'no change',
-                     2: 'mapped type changed',
-                     3: 'ecological systems changed',
-                     4: 'floodplains removed',
-                     5: 'manual review required'}
 
 # Retrieve attribute code block
 label_block = get_attribute_code_block()
 
-# Post-process revised Landfire EVT
-print('Post-processing revised Landfire EVT...')
+# Set overwrite option
+arcpy.env.overwriteOutput = True
+
+# Specify core usage
+arcpy.env.parallelProcessingFactor = '0'
+
+# Set workspace
+arcpy.env.workspace = workspace_geodatabase
+
+# Set snap raster and extent
+arcpy.env.snapRaster = area_input
+arcpy.env.extent = Raster(area_input).extent
+
+# Set output coordinate system
+arcpy.env.outputCoordinateSystem = Raster(area_input)
+
+# Set cell size environment
+cell_size = arcpy.management.GetRasterProperties(area_input, 'CELLSIZEX', '').getOutput(0)
+arcpy.env.cellSize = int(cell_size)
+
+# Enforce MMU
+print('Enforcing minimum mapping unit...')
 iteration_start = time.time()
-print('\tCalculating statistics...')
-arcpy.management.CalculateStatistics(revised_input)
-arcpy.management.BuildRasterAttributeTable(revised_input, 'Overwrite')
+# Calculate regions
+print('\tCalculating contiguous value areas...')
+revised_raster = Raster(revised_input)
+region_initial = RegionGroup(revised_raster,
+                             'EIGHT',
+                             'WITHIN',
+                             'NO_LINK')
+print('\tExporting region raster...')
+arcpy.management.CopyRaster(region_initial,
+                            region_output,
+                            '',
+                            '',
+                            '-32768',
+                            'NONE',
+                            'NONE',
+                            '32_BIT_SIGNED',
+                            'NONE',
+                            'NONE',
+                            'TIFF',
+                            'NONE',
+                            'CURRENT_SLICE',
+                            'NO_TRANSPOSE')
+arcpy.management.CalculateStatistics(region_output)
+# Create mask
+print('\tCalculating mask...')
+criteria = f'COUNT > 1'
+mask_1 = ExtractByAttributes(region_initial, criteria)
+mask_2 = SetNull((revised_raster == 7292) | (revised_raster == 7296) | (revised_raster == 7297)
+                 | (revised_raster == 7298) | (revised_raster == 7299) | (revised_raster == 7300),
+                 mask_1)
+print('\tExporting mask raster...')
+mask_export = Con(mask_2 >= 32767, 32767, mask_2)
+arcpy.management.CopyRaster(mask_export,
+                            mask_output,
+                            '',
+                            '',
+                            '-32768',
+                            'NONE',
+                            'NONE',
+                            '16_BIT_SIGNED',
+                            'NONE',
+                            'NONE',
+                            'TIFF',
+                            'NONE',
+                            'CURRENT_SLICE',
+                            'NO_TRANSPOSE')
+arcpy.management.CalculateStatistics(mask_output)
+# Replace removed data
+print('\tReplacing contiguous areas below minimum mapping unit...')
+nibble_initial = Nibble(revised_raster,
+                        mask_2,
+                        'DATA_ONLY',
+                        'PROCESS_NODATA')
+# Export nibble raster
+print('\tExporting modified raster...')
+arcpy.management.CopyRaster(nibble_initial,
+                            nibble_output,
+                            '',
+                            '',
+                            '-32768',
+                            'NONE',
+                            'NONE',
+                            '16_BIT_SIGNED',
+                            'NONE',
+                            'NONE',
+                            'TIFF',
+                            'NONE',
+                            'CURRENT_SLICE',
+                            'NO_TRANSPOSE')
+arcpy.management.CalculateStatistics(nibble_output)
+# Add removed data
+print('\tReplacing removed values for linear features...')
+replace_raster = Con((revised_raster == 7292) | (revised_raster == 7296) | (revised_raster == 7297)
+                     | (revised_raster == 7298) | (revised_raster == 7299) | (revised_raster == 7300),
+                     revised_raster, nibble_initial)
+# Extract raster to study area
+print('\tExtracting raster to Landfire domain...')
+extract_raster = ExtractByMask(replace_raster, area_input)
+# Export modified raster
+print('\tExporting modified raster...')
+arcpy.management.CopyRaster(extract_raster,
+                            revised_output,
+                            '',
+                            '',
+                            '-32768',
+                            'NONE',
+                            'NONE',
+                            '16_BIT_SIGNED',
+                            'NONE',
+                            'NONE',
+                            'TIFF',
+                            'NONE',
+                            'CURRENT_SLICE',
+                            'NO_TRANSPOSE')
+arcpy.management.CalculateStatistics(revised_output)
+arcpy.management.BuildRasterAttributeTable(revised_output, 'Overwrite')
 # Calculate attribute label field
 print('\tBuilding attribute table...')
 label_expression = f'get_response(!VALUE!, {landfire_dictionary}, "value")'
-arcpy.management.CalculateField(revised_input,
+arcpy.management.CalculateField(revised_output,
                                 'label',
                                 label_expression,
                                 'PYTHON3',
                                 label_block)
 # Build pyramids
 print('\tBuilding pyramids...')
-arcpy.management.BuildPyramids(revised_input,
-                               -1,
-                               'NONE',
-                               'NEAREST',
-                               'LZ77',
-                               '',
-                               'OVERWRITE')
-end_timing(iteration_start)
-
-# Post-process status results
-print('Post-processing status results...')
-iteration_start = time.time()
-print('\tCalculating statistics...')
-arcpy.management.CalculateStatistics(status_input)
-arcpy.management.BuildRasterAttributeTable(status_input, 'Overwrite')
-# Calculate attribute label field
-print('\tBuilding attribute table...')
-label_expression = f'get_response(!VALUE!, {status_dictionary}, "value")'
-arcpy.management.CalculateField(status_input,
-                                'EVT_NAME',
-                                label_expression,
-                                'PYTHON3',
-                                label_block)
-# Build pyramids
-print('\tBuilding pyramids...')
-arcpy.management.BuildPyramids(status_input,
+arcpy.management.BuildPyramids(revised_output,
                                -1,
                                'NONE',
                                'NEAREST',

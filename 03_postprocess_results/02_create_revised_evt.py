@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Create revised Landfire EVT
 # Author: Timm Nawrocki
-# Last Updated: 2024-01-17
+# Last Updated: 2024-01-27
 # Usage: Must be executed in an ArcGIS Pro Python 3.9+ distribution.
 # Description: "Create revised Landfire EVT" combines the EVT that resulted from the automated checks with the original Landfire 2016 EVT.
 # ---------------------------------------------------------------------------
@@ -19,7 +19,7 @@ from akutils import *
 nodata = -32768
 
 # Set round date
-round_date = 'round_20240114'
+round_date = 'round_20240125'
 
 # Set root directory
 drive = 'D:/'
@@ -197,3 +197,7 @@ with rasterio.open(revised_output, 'w', **input_profile, BIGTIFF='YES') as dst:
         # Report progress
         count, progress = raster_block_progress(100, len(window_list), count, progress)
 end_timing(iteration_start)
+
+# Delete intermediate datasets
+os.remove(subboreal_intermediate)
+os.remove(evt_intermediate)

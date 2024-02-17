@@ -4,7 +4,6 @@ author: "Matt Macander"
 date: "2024-01-18"
 output: html_document
 ---
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 # library(raster)
@@ -48,17 +47,25 @@ evt_group_xwalk <- read_sheet("https://docs.google.com/spreadsheets/d/1CZRGKAGiO
   select(Value = EVT_ORIG, group)
 ```
 
+```{arcpy combine two rasters}
+out_raster = arcpy.sa.Combine(
+    in_rasters=r"W:\gis_projects\2023\23-241_Landfire\data_package_v1.0_20240126\Data_Input\landfire_evt\LA16_EVT_200.tif;W:\gis_projects\2023\23-241_Landfire\data_package_v1.0_20240126\Data_Output\final_rasters\Landfire_EVT_Revised_30m_3338.tif"
+)
+out_raster.save(r"W:\gis_projects\2023\23-241_Landfire\data_package_v1.0_20240126\Data_Output\final_rasters\Landfire_EVT_LA16_x_Revised_30m_3338.tif")
+
+```
+
 ```{r get tables}
 evt_x_rev_vat_in <- foreign::read.dbf(path(wRoot,
-                                           "gis_projects/2023/23-241_Landfire/data_package_v0.4_20240116/Data_Output/final_rasters",
-                                           "Landfire_EVT_LA16_v_Revised_30m_3338.tif.vat.dbf"))
-evt_vat <- foreign::read.dbf(path(wRoot, "/gis_projects/2023/23-241_Landfire/data_package_v0.4_20240116/Data_Input/landfire_evt/LA16_EVT_200.tif.vat.dbf")) %>%
+                                           "gis_projects/2023/23-241_Landfire/data_package_v1.0_20240126/Data_Output/final_rasters",
+                                           "Landfire_EVT_LA16_x_Revised_30m_3338.tif.vat.dbf"))
+evt_vat <- foreign::read.dbf(path(wRoot, "gis_projects/2023/23-241_Landfire/data_package_v1.0_20240126/Data_Input/landfire_evt/LA16_EVT_200.tif.vat.dbf")) %>%
   mutate(area_sqkm = Count * 900 / 1000000) %>%
   left_join(evt_group_xwalk)
 
 evt_vat %>% group_by(group) %>% summarize(area_sqkm = sum(area_sqkm), n=n())  
 
-rev_vat <- foreign::read.dbf(path(wRoot, "gis_projects/2023/23-241_Landfire/data_package_v0.4_20240116/Data_Output/final_rasters/Landfire_EVT_Revised_30m_3338.tif.vat.dbf")) %>%
+rev_vat <- foreign::read.dbf(path(wRoot, "gis_projects/2023/23-241_Landfire/data_package_v1.0_20240126/Data_Output/final_rasters/Landfire_EVT_Revised_30m_3338.tif.vat.dbf")) %>%
   mutate(area_sqkm = Count * 900 / 1000000) %>%
   left_join(evt_group_xwalk)
 
@@ -86,7 +93,6 @@ evt_x_rev_vat_filt_rev <- evt_x_rev_vat %>%
   # filter(area_sqkm >= 100)
   filter(pArea_Rev_group >= 0.001)
 evt_x_rev_vat_filt_rev %>% ungroup() %>% summarize(area_sqkm = sum(area_sqkm))
-
 
 ```
 
@@ -186,14 +192,14 @@ sankey_by_group <- function(df, group) {
 
   # library(webshot)
   # you convert it as png
-  webshot(path(wDir, "transition_plots", glue("transition_{group}.html")), path(wDir, "transition_plots", glue("transition_{group}.png")), vwidth = 2000, vheight = 1000)
+  webshot(path(wDir, "transition_plots", glue("transition_{group}.html")), path(wDir, "transition_plots/png", glue("transition_{group}.png")), vwidth = 2000, vheight = 1000)
 
   return(group)
 }
 ```
 
 ```{r generate plots}
-# dir_create(path(wDir, "transition_plots"), mode="2775")
+dir_create(path(wDir, "transition_plots/png"), mode="2775")
 # sankey_by_group(evt_x_rev_vat_filt, "Arctic_herbaceous")
 
 groups <- evt_group_xwalk %>%
@@ -237,11 +243,11 @@ sankey_by_group_inv <- function(df, group) {
                        Value = "value", NodeID = "name", 
                        sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=fontsize, nodePadding=nodepadding)
   sn
-  saveNetwork(sn, path(wDir, "inverse_transition_plots/html", glue("inv_transition_{group}.html")))
+  saveNetwork(sn, path(wDir, "inverse_transition_plots", glue("inv_transition_{group}.html")))
 
   # library(webshot)
   # you convert it as png
-  webshot(path(wDir, "inverse_transition_plots/html", glue("inv_transition_{group}.html")), path(wDir, "inverse_transition_plots", glue("inv_transition_{group}.png")), vwidth = 2000, vheight = 1000)
+  webshot(path(wDir, "inverse_transition_plots", glue("inv_transition_{group}.html")), path(wDir, "inverse_transition_plots/png", glue("inv_transition_{group}.png")), vwidth = 2000, vheight = 1000)
 
   return(group)
 }
@@ -249,7 +255,7 @@ sankey_by_group_inv <- function(df, group) {
 ```
 
 ```{r generate inv plots}
-dir_create(path(wDir, "inverse_transition_plots/html"), mode="2775")
+dir_create(path(wDir, "inverse_transition_plots/png"), mode="2775")
 # sankey_by_group(evt_x_rev_vat_filt, "Arctic_herbaceous")
 
 # groups <- evt_group_xwalk %>%
